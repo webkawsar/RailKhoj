@@ -11,6 +11,7 @@ export async function GET(request: NextRequest) {
 
   const model = searchParams.get("model");
   const departureDate = searchParams.get("date");
+  console.log(searchParams, "searchParams")
 
   if (!model || !departureDate) {
     return NextResponse.json(

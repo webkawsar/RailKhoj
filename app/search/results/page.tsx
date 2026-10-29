@@ -192,7 +192,7 @@ function TrainCard({
   function saveAlternativeSearch() {
     try {
       sessionStorage.setItem(
-        "railkhoj-alternative-search",
+        "SeatKoi_alternative_search",
         JSON.stringify({
           route,
           train,
