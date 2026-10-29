@@ -31,12 +31,12 @@
 .rail-station__suggestions {
   position: absolute;
   z-index: 20;
-  top: calc(100% - 25px);
+  top: 101%;
   right: 0;
   left: 0;
   max-height: 290px;
   margin: 0;
-  padding: 28px 0 5px;
+  padding: 5px 0 5px;
   overflow-y: auto;
   border: 1px solid #e0e9e3;
   border-radius: 10px;

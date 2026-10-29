@@ -669,3 +669,137 @@
   cursor: not-allowed;
   pointer-events: none;
 }
+
+
+.rail-search__submit:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+  pointer-events: none;
+}
+
+.rail-search__results {
+  margin-top: 24px;
+  padding: 24px;
+  background: #fff;
+  border: 1px solid #e1ebe5;
+  border-radius: 18px;
+  overflow: hidden;
+}
+
+.rail-search__results h2 {
+  margin: 0 0 18px;
+  color: #123e32;
+}
+
+.rail-search__result-route {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px 24px;
+  margin-bottom: 20px;
+}
+
+.rail-search__result-route p {
+  margin: 0;
+  color: #365b50;
+}
+
+.rail-search__response {
+  max-height: 500px;
+  overflow: auto;
+  padding: 16px;
+  border-radius: 10px;
+  background: #f3f7f4;
+  color: #173d32;
+  font-size: 13px;
+  line-height: 1.6;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+
+/* Error message */
+.rail-search__message--error {
+  color: #b42318;
+  background-color: #fef3f2;
+  border: 1px solid #fecdca;
+  padding: 12px 16px;
+  border-radius: 8px;
+}
+
+/* Success message */
+.rail-search__message--success {
+  color: #067647;
+  background-color: #ecfdf3;
+  border: 1px solid #abefc6;
+  padding: 12px 16px;
+  border-radius: 8px;
+}
+
+
+/* ------------------------------------------------------------------
+   Search message states
+   Append this section to the END of app/search/SearchForm.css.
+   These rules override the previous generic green message styling.
+------------------------------------------------------------------- */
+
+.rail-search__message {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  margin: 20px 0 0;
+  padding: 12px 14px;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  font-size: 12px;
+  line-height: 1.7;
+  overflow-wrap: anywhere;
+}
+
+.rail-search__message-icon {
+  display: inline-grid;
+  flex: 0 0 18px;
+  width: 18px;
+  height: 18px;
+  margin-top: 1px;
+  place-items: center;
+  border-radius: 50%;
+  font-size: 12px;
+  font-weight: 800;
+  line-height: 1;
+}
+
+.rail-search__message--error {
+  color: #b42318;
+  background: #fef3f2;
+  border-color: #fecdca;
+}
+
+.rail-search__message--error .rail-search__message-icon {
+  color: #fff;
+  background: #d92d20;
+}
+
+.rail-search__message--success {
+  color: #067647;
+  background: #ecfdf3;
+  border-color: #abefc6;
+}
+
+.rail-search__message--success .rail-search__message-icon {
+  color: #fff;
+  background: #079455;
+}
+
+/* Keep disabled state consistent; this replaces duplicate rules safely. */
+.rail-search__submit:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+  pointer-events: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .rail-search__submit,
+  .rail-search__swap {
+    transition: none;
+  }
+}

@@ -1,41 +1,70 @@
-
 "use client";
 
 import { useEffect, useState, type FormEvent } from "react";
+import { useRouter } from "next/navigation";
 import StationAutocomplete, {
   type RailwayCity,
 } from "@/components/search/StationAutocomplete";
 import "./SearchForm.css";
 
+type SearchResult = {
+  ok?: boolean;
+  status?: number;
+  route?: {
+    from: string;
+    to: string;
+    date: string;
+    seatClass: string;
+  };
+  data?: unknown;
+  error?: string;
+  upstreamStatus?: number;
+  details?: unknown;
+};
+
+type MessageType = "error" | "success";
+
+const SEARCH_RESULT_STORAGE_KEY = "SeatKoi_search_result";
+
 export default function SearchPage() {
-  // Station selection: no default values
-  const [fromStation, setFromStation] =
-    useState<RailwayCity | null>(null);
+  const router = useRouter();
 
-  const [toStation, setToStation] =
-    useState<RailwayCity | null>(null);
-
-  // Empty station inputs initially
+  // Stations must be selected from autocomplete suggestions.
+  const [fromStation, setFromStation] = useState<RailwayCity | null>(null);
+  const [toStation, setToStation] = useState<RailwayCity | null>(null);
   const [fromInput, setFromInput] = useState("");
   const [toInput, setToInput] = useState("");
-
   const [journeyDate, setJourneyDate] = useState("");
-  const [message, setMessage] = useState("");
   const [minDate, setMinDate] = useState("");
   const [maxDate, setMaxDate] = useState("");
+  const [message, setMessage] = useState("");
+  const [messageType, setMessageType] = useState<MessageType>("error");
+  const [isLoading, setIsLoading] = useState(false);
 
-  // Allow journey dates from today through the next 10 days
+  function showError(text: string) {
+    setMessageType("error");
+    setMessage(text);
+  }
+
+  function showSuccess(text: string) {
+    setMessageType("success");
+    setMessage(text);
+  }
+
+  function clearMessage() {
+    setMessage("");
+  }
+
+  // Allow journeys from today through 10 days from today, inclusive.
   useEffect(() => {
     function formatDate(date: Date): string {
       const year = date.getFullYear();
       const month = String(date.getMonth() + 1).padStart(2, "0");
       const day = String(date.getDate()).padStart(2, "0");
-
       return `${year}-${month}-${day}`;
     }
 
     const today = new Date();
-
     const lastAllowedDate = new Date(today);
     lastAllowedDate.setDate(lastAllowedDate.getDate() + 10);
 
@@ -43,18 +72,6 @@ export default function SearchPage() {
     setMaxDate(formatDate(lastAllowedDate));
   }, []);
 
-  // Swap starting and destination stations
-  function handleSwapStations() {
-    setFromStation(toStation);
-    setToStation(fromStation);
-
-    setFromInput(toInput);
-    setToInput(fromInput);
-
-    setMessage("");
-  }
-
-  // Check whether the form is ready for submission
   const isSearchReady =
     fromStation !== null &&
     toStation !== null &&
@@ -63,24 +80,30 @@ export default function SearchPage() {
     minDate !== "" &&
     maxDate !== "" &&
     journeyDate >= minDate &&
-    journeyDate <= maxDate;
+    journeyDate <= maxDate &&
+    !isLoading;
 
-  // Validate the search form
-  function handleSearch(event: FormEvent<HTMLFormElement>) {
+  function handleSwapStations() {
+    setFromStation(toStation);
+    setToStation(fromStation);
+    setFromInput(toInput);
+    setToInput(fromInput);
+    clearMessage();
+  }
+
+  async function handleSearch(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    setMessage("");
+    clearMessage();
 
     if (!fromStation || !toStation || !journeyDate) {
-      setMessage(
+      showError(
         "Please select a valid starting station, destination, and journey date."
       );
       return;
     }
 
     if (fromStation.city_id === toStation.city_id) {
-      setMessage(
-        "Starting and ending stations cannot be the same."
-      );
+      showError("Starting and ending stations cannot be the same.");
       return;
     }
 
@@ -90,142 +113,149 @@ export default function SearchPage() {
       journeyDate < minDate ||
       journeyDate > maxDate
     ) {
-      setMessage(
-        "Journey date must be between today and the next 10 days."
-      );
+      showError("Journey date must be between today and the next 10 days.");
       return;
     }
 
-    // These values will be used for Railway search API integration
-    console.log("Railway search details:", {
-      from_city_id: fromStation.city_id,
-      from_city_name: fromStation.city_name,
-      to_city_id: toStation.city_id,
-      to_city_name: toStation.city_name,
-      date_of_journey: journeyDate,
-    });
+    setIsLoading(true);
 
-    setMessage(
-      "Your search details are valid. Railway search API integration is pending."
-    );
+    try {
+      const response = await fetch("/api/search-trips", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Accept: "application/json" },
+        body: JSON.stringify({
+          from_city_id: fromStation.city_id,
+          to_city_id: toStation.city_id,
+          from_city: fromStation.city_name,
+          to_city: toStation.city_name,
+          date_of_journey: journeyDate,
+        }),
+        cache: "no-store",
+      });
+
+      let result: SearchResult;
+      try {
+        result = (await response.json()) as SearchResult;
+      } catch {
+        showError("The search service returned an invalid response. Please try again.");
+        return;
+      }
+
+      // The local API route may return HTTP 200 even when Railway rejected the request.
+      const upstreamStatus = result.upstreamStatus ?? result.status;
+      const hasError = !response.ok || result.ok === false || Boolean(result.error);
+
+      if (hasError) {
+        const apiMessage = result.error || "Unable to search for trains.";
+        const statusText = upstreamStatus ? ` (Railway API status: ${upstreamStatus})` : "";
+        showError(`${apiMessage}${statusText}`);
+        return;
+      }
+
+      const payload = result.data ?? result;
+      if (payload == null) {
+        showError("Railway API returned an empty response. Please try again.");
+        return;
+      }
+
+      const resultForResultsPage = {
+        route: {
+          from: fromStation.city_name,
+          to: toStation.city_name,
+          date: journeyDate,
+          seatClass: "All available classes",
+        },
+        data: payload,
+        receivedAt: new Date().toISOString(),
+      };
+
+      try {
+        sessionStorage.setItem(
+          SEARCH_RESULT_STORAGE_KEY,
+          JSON.stringify(resultForResultsPage)
+        );
+      } catch {
+        showError("Could not save the search results in this browser. Please try again.");
+        return;
+      }
+
+      // The results page will display the successful search response.
+      // Keep this success message as a fallback if navigation is delayed.
+      showSuccess("Search successful. Opening train results…");
+      router.push("/search/results");
+    } catch {
+      showError("Could not connect to the search service. Please try again.");
+    } finally {
+      setIsLoading(false);
+    }
   }
 
   return (
     <main className="rail-search">
-      {/* Header */}
       <header className="rail-search__header">
         <a href="/search" className="rail-search__brand">
-          <span
-            className="rail-search__brand-icon"
-            aria-hidden="true"
-          >
-            <svg
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="1.8"
-            >
+          <span className="rail-search__brand-icon" aria-hidden="true">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
               <rect x="4" y="3" width="16" height="15" rx="4" />
               <path d="M7 8h10M7 12h10M8 18l-2 3m10-3 2 3M8 15h.01M16 15h.01" />
             </svg>
           </span>
-
           <span>
-            <strong>RailKhoj</strong>
+            <strong>SeatKoi</strong>
             <small>Bangladesh Railway</small>
           </span>
         </a>
-
         <div className="rail-search__secure">
           <span className="rail-search__secure-dot" />
           Railway Seat Finder
         </div>
       </header>
 
-      {/* Hero Section */}
       <section className="rail-search__hero">
         <div className="rail-search__hero-content">
-          <span className="rail-search__eyebrow">
-            YOUR JOURNEY STARTS HERE
-          </span>
-
+          <span className="rail-search__eyebrow">YOUR JOURNEY STARTS HERE</span>
           <h1>
             Find your next
             <br />
             <span>train journey.</span>
           </h1>
-
           <p>
-            Search your route, choose your travel date, and get ready
-            for your next journey across Bangladesh.
+            Search your route, choose your travel date, and get ready for your
+            next journey across Bangladesh.
           </p>
-
           <div className="rail-search__features">
-            <span>
-              <span aria-hidden="true">✓</span> Simple route search
-            </span>
-
-            <span>
-              <span aria-hidden="true">✓</span> Easy date selection
-            </span>
+            <span><span aria-hidden="true">✓</span> Simple route search</span>
+            <span><span aria-hidden="true">✓</span> Easy date selection</span>
           </div>
         </div>
 
-        {/* Train Illustration */}
-        <div
-          className="rail-search__illustration"
-          aria-hidden="true"
-        >
+        <div className="rail-search__illustration" aria-hidden="true">
           <div className="rail-search__sun" />
-
           <div className="rail-search__hill rail-search__hill--back" />
-
           <div className="rail-search__hill rail-search__hill--front" />
-
           <div className="rail-search__train">
-            <div className="rail-search__train-window">
-              <span />
-              <span />
-              <span />
-            </div>
-
+            <div className="rail-search__train-window"><span /><span /><span /></div>
             <div className="rail-search__train-body" />
-
             <div className="rail-search__train-lights" />
-
             <div className="rail-search__train-wheel rail-search__train-wheel--one" />
-
             <div className="rail-search__train-wheel rail-search__train-wheel--two" />
-
             <div className="rail-search__train-wheel rail-search__train-wheel--three" />
           </div>
-
           <div className="rail-search__track" />
           <div className="rail-search__track-line" />
         </div>
       </section>
 
-      {/* Search Panel */}
       <section className="rail-search__panel">
         <div className="rail-search__panel-heading">
           <div>
-            <span className="rail-search__section-label">
-              PLAN YOUR TRIP
-            </span>
-
+            <span className="rail-search__section-label">PLAN YOUR TRIP</span>
             <h2>Search train tickets</h2>
           </div>
-
-          {/* <span className="rail-search__step">
-            01 / SEARCH
-          </span> */}
+          <span className="rail-search__step">01 / SEARCH</span>
         </div>
 
-        <form
-          className="rail-search__form"
-          onSubmit={handleSearch}
-        >
-          {/* Starting and Destination Stations */}
+        <form className="rail-search__form" onSubmit={handleSearch} noValidate>
           <div className="rail-search__route">
             <StationAutocomplete
               label="FROM"
@@ -234,31 +264,25 @@ export default function SearchPage() {
               onInputChange={(value) => {
                 setFromInput(value);
                 setFromStation(null);
-                setMessage("");
+                clearMessage();
               }}
               selectedCity={fromStation}
               onSelect={(city) => {
                 setFromStation(city);
-                setMessage("");
+                clearMessage();
               }}
               fromOnly
             />
 
-            {/* Swap Stations */}
             <button
               className="rail-search__swap"
               type="button"
               onClick={handleSwapStations}
               aria-label="Swap starting and ending stations"
               title="Swap stations"
+              disabled={isLoading}
             >
-              <svg
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="1.8"
-                aria-hidden="true"
-              >
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden="true">
                 <path d="M7 7h13l-3-3m3 3-3 3M17 17H4l3 3m-3-3 3-3" />
               </svg>
             </button>
@@ -270,47 +294,28 @@ export default function SearchPage() {
               onInputChange={(value) => {
                 setToInput(value);
                 setToStation(null);
-                setMessage("");
+                clearMessage();
               }}
               selectedCity={toStation}
               onSelect={(city) => {
                 setToStation(city);
-                setMessage("");
+                clearMessage();
               }}
             />
           </div>
 
           <div className="rail-search__divider" />
 
-          {/* Journey Date and Search Button */}
           <div className="rail-search__bottom">
             <div className="rail-search__field rail-search__date-field">
-              <label htmlFor="journeyDate">
-                JOURNEY DATE
-              </label>
-
+              <label htmlFor="journeyDate">JOURNEY DATE</label>
               <div className="rail-search__input-wrap">
-                <span
-                  className="rail-search__field-icon"
-                  aria-hidden="true"
-                >
-                  <svg
-                    viewBox="0 0 24 24"
-                    fill="none"
-                    stroke="currentColor"
-                    strokeWidth="1.8"
-                  >
-                    <rect
-                      x="3"
-                      y="5"
-                      width="18"
-                      height="16"
-                      rx="2"
-                    />
+                <span className="rail-search__field-icon" aria-hidden="true">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
+                    <rect x="3" y="5" width="18" height="16" rx="2" />
                     <path d="M16 3v4M8 3v4M3 10h18" />
                   </svg>
                 </span>
-
                 <input
                   id="journeyDate"
                   name="journeyDate"
@@ -320,13 +325,13 @@ export default function SearchPage() {
                   value={journeyDate}
                   onChange={(event) => {
                     setJourneyDate(event.target.value);
-                    setMessage("");
+                    clearMessage();
                   }}
                   required
+                  disabled={!minDate || isLoading}
                 />
               </div>
-
-              {/* <small>Select your travel date (within 10 days)</small> */}
+              <small>Select your travel date (within 10 days)</small>
             </div>
 
             <button
@@ -334,45 +339,33 @@ export default function SearchPage() {
               type="submit"
               disabled={!isSearchReady}
             >
-              Search Trains
-
-              <svg
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="2"
-                aria-hidden="true"
-              >
-                <path d="M5 12h14m-6-6 6 6-6 6" />
-              </svg>
+              {isLoading ? "Searching..." : "Search Trains"}
+              {!isLoading && (
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
+                  <path d="M5 12h14m-6-6 6 6-6 6" />
+                </svg>
+              )}
             </button>
           </div>
 
-          {/* Validation / Status Message */}
           {message && (
             <p
-              className="rail-search__message"
-              role="status"
-              aria-live="polite"
+              className={`rail-search__message rail-search__message--${messageType}`}
+              role={messageType === "error" ? "alert" : "status"}
+              aria-live={messageType === "error" ? "assertive" : "polite"}
             >
-              {message}
+              <span className="rail-search__message-icon" aria-hidden="true">
+                {messageType === "error" ? "!" : "✓"}
+              </span>
+              <span>{message}</span>
             </p>
           )}
         </form>
-
-        {/* <p className="rail-search__note">
-          <span aria-hidden="true">ⓘ</span>
-          Train availability will be displayed after the Railway
-          search API is connected.
-        </p> */}
       </section>
 
-      {/* Footer */}
       <footer className="rail-search__footer">
-        <span>RailKhoj</span>
-        <span>
-          Made for easier train journeys in Bangladesh.
-        </span>
+        <span>SeatKoi</span>
+        <span>Made for easier train journeys in Bangladesh.</span>
       </footer>
     </main>
   );
